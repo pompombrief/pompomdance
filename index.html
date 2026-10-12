@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="ja"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>DANCER vs KILLER</title>
+<style>
+:root{--bg:#0b0b14;--fg:#f2f2f7;--pink:#ff7ad9;--red:#ff3b5c;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+html,body{height:100%;margin:0;background:var(--bg);color:var(--fg);font-family:system-ui,"Hiragino Sans","Yu Gothic",sans-serif;overflow:hidden}
+body{position:relative}canvas{display:block}
+#hud{position:absolute;inset:0;pointer-events:none;font-weight:700;text-shadow:0 1px 4px #000}
+#top{position:absolute;top:10px;left:50%;transform:translateX(-50%);width:min(480px,70%);text-align:center}
+#bar{height:16px;border:2px solid var(--fg);border-radius:9px;overflow:hidden;background:#222}
+#sf{height:100%;width:100%;background:linear-gradient(90deg,var(--red),#ffb347)}
+#dl{position:absolute;left:12px;bottom:56px;font-size:15px;line-height:1.6}
+#kl{position:absolute;right:12px;top:10px;font-size:14px;text-align:right}
+#mm{position:absolute;right:10px;bottom:34px;width:150px;height:150px;border:2px solid var(--fg);background:#0009}
+#cx{position:absolute;left:50%;top:50%;width:8px;height:8px;margin:-6px;border:2px solid #fff8;border-radius:50%}
+#fl{position:absolute;inset:0;background:red;opacity:0}
+#msg{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center;font-size:19px;line-height:1.8;width:90%}
+#msg h1{font-size:34px;margin:0 0 8px;color:var(--pink)}
+#help{position:absolute;bottom:8px;left:0;right:0;text-align:center;font-size:12px;opacity:.85;padding:0 8px}
+</style></head><body>
+<div id="hud"><div id="fl"></div><div id="cx"></div>
+<div id="top">キラーの正気度<div id="bar"><div id="sf"></div></div></div>
+<div id="kl"></div><div id="dl"></div><canvas id="mm" width="150" height="150"></canvas>
+<div id="msg"></div>
+<div id="help">ダンサー:WASD移動 / Q・E視点(クリックでマウス視点) / 1・2・3 押しっぱなしで踊る　｜　キラー(対人):←→旋回 ↑↓移動 Enter発射 / 目をそらす</div>
+</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+const $=id=>document.getElementById(id),cl=(v,a,b)=>Math.max(a,Math.min(b,v)),PI=Math.PI,wrap=a=>Math.atan2(Math.sin(a),Math.cos(a));
+const R=new THREE.WebGLRenderer({antialias:true});R.setPixelRatio(Math.min(devicePixelRatio,2));document.body.appendChild(R.domElement);
+const S=new THREE.Scene();S.background=new THREE.Color(0x0b0b14);S.fog=new THREE.Fog(0x0b0b14,14,42);
+const C=new THREE.PerspectiveCamera(75,1,.1,100);C.rotation.order='YXZ';S.add(C);
+function rs(){const w=document.body.clientWidth,h=document.body.clientHeight;R.setSize(w,h);C.aspect=w/h;C.updateProjectionMatrix()}
+addEventListener('resize',rs);rs();
+S.add(new THREE.AmbientLight(0xaaaacc,.9));const pl=new THREE.PointLight(0xff7ad9,1.2,50);pl.position.set(0,8,0);S.add(pl);
+const mk=(g,c)=>new THREE.Mesh(g,new THREE.MeshStandardMaterial({color:c}));
+const fl=mk(new THREE.PlaneGeometry(30,30),0x1a1a2e);fl.rotation.x=-PI/2;S.add(fl);
+const gr=new THREE.GridHelper(30,15,0xff7ad9,0x333355);gr.position.y=.01;S.add(gr);
+// field: [x,z,w,d] cover objects
+const BX=[[-6,-4,5,1],[6,-4,5,1],[0,0,1.6,1.6],[-10,3,1.4,6],[10,3,1.4,6],[-4,7,3,1],[4,7,3,1],[0,-8,1.5,1.5]];
+BX.forEach(b=>{const m=mk(new THREE.BoxGeometry(b[2],2.4,b[3]),0x4a3d70);m.position.set(b[0],1.2,b[1]);S.add(m)});
+[[0,-14.2,30,.4],[0,14.2,30,.4],[-14.2,0,.4,30],[14.2,0,.4,30]].forEach(b=>{const m=mk(new THREE.BoxGeometry(b[2],3,b[3]),0x2a2545);m.position.set(b[0],1.5,b[1]);S.add(m)});
+const blocked=(x,z,r)=>Math.abs(x)>14-r||Math.abs(z)>14-r||BX.some(b=>Math.abs(x-b[0])<b[2]/2+r&&Math.abs(z-b[1])<b[3]/2+r);
+const mv=(o,dx,dz,r)=>{if(!blocked(o.x+dx,o.z,r))o.x+=dx;if(!blocked(o.x,o.z+dz,r))o.z+=dz};
+function los(ax,az,bx,bz){const n=Math.ceil(Math.hypot(bx-ax,bz-az)/.4);for(let i=1;i<n;i++){const x=ax+(bx-ax)*i/n,z=az+(bz-az)*i/n;if(BX.some(b=>Math.abs(x-b[0])<b[2]/2&&Math.abs(z-b[1])<b[3]/2))return false}return true}
+// first-person hands
+const hL=mk(new THREE.BoxGeometry(.14,.14,.5),0xffe0f0),hR=hL.clone();hR.material=hL.material;
+hL.position.set(-.4,-.55,-.7);hR.position.set(.4,-.55,-.7);C.add(hL,hR);
+// killer
+const K=new THREE.Group();K.rotation.order='YXZ';const kB=mk(new THREE.BoxGeometry(.8,1.4,.5),0x992233);kB.position.y=.8;
+const kH=new THREE.Group();kH.position.y=1.8;kH.add(mk(new THREE.SphereGeometry(.3,16,12),0xddddcc));
+const gun=mk(new THREE.BoxGeometry(.15,.15,.8),0x222222);gun.position.set(.35,1.2,.5);K.add(kB,kH,gun);S.add(K);
+const LZ=new THREE.Group(),lm=new THREE.Mesh(new THREE.BoxGeometry(.04,.04,26),new THREE.MeshBasicMaterial({color:0xff2244,transparent:true,opacity:.35}));lm.position.z=13;LZ.add(lm);S.add(LZ);
+// dances: d=sanity drain, s=move speed, a/f=decoy sway (the dancer's real hitbox sways with the dance)
+const DN=[{n:'ゆったり',d:3,s:1,a:.7,f:3},{n:'ステップ',d:5,s:.8,a:1.1,f:5.5},{n:'激しい',d:9,s:.5,a:1.5,f:8}];
+const YK={amp:2.2,hz:1.8,tilt:.35,head:.3,twist:.45};
+let st='ready',mode=1,san,hp,ammo,cd,rl,dance,last,combo,inv,dAmp,wt=0,wx=0,wz=0,bl=[],t=0,keys={},avert=false,aiT,aiX,aiZ,aiAv,P,Kl;
+function reset(){san=100;hp=3;ammo=6;cd=0;rl=0;dance=-1;last=-1;combo=0;inv=0;dAmp=0;aiT=0;aiAv=0;
+ bl.forEach(b=>S.remove(b.m));bl=[];P={x:0,z:12,yaw:0};Kl={x:0,z:-12,yaw:0};K.rotation.set(0,0,0);kH.rotation.set(0,0,0);LZ.visible=true;C.rotation.set(0,0,0)}
+reset();
+const msg=(h,p)=>{$('msg').innerHTML=(h?'<h1>'+h+'</h1>':'')+p};
+const MENU='<b>1</b> CPUキラーと対戦 / <b>2</b> 対人(キラー役は別の人)';
+msg('DANCER vs KILLER','キラーの前で踊って正気度を削れ。遮蔽物に隠れて弾を避けろ。<br>'+MENU);
+function go(){reset();st='play';msg('','')}
+addEventListener('keydown',e=>{keys[e.code]=1;
+ if(['Space','Enter','Slash','ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(e.code))e.preventDefault();
+ if(st!='play'){if(e.code=='Digit1'){mode=1;go()}else if(e.code=='Digit2'){mode=2;go()}}
+ if(e.code=='KeyR')go()});
+addEventListener('keyup',e=>keys[e.code]=0);
+R.domElement.addEventListener('click',()=>{try{if(st=='play')R.domElement.requestPointerLock()}catch(e){}});
+addEventListener('mousemove',e=>{if(document.pointerLockElement===R.domElement)P.yaw-=e.movementX*.0025});
+function fire(aim){const m=mk(new THREE.SphereGeometry(.15,8,8),0xffe14d),v=new THREE.Vector3(Math.sin(aim),0,Math.cos(aim));
+ m.position.set(Kl.x+v.x*.9,1.2,Kl.z+v.z*.9);S.add(m);bl.push({m,v:v.multiplyScalar(20)})}
+function end(win){st=win?'win':'lose';wt=t;wx=Kl.x;wz=Kl.z;document.exitPointerLock&&document.exitPointerLock();
+ msg(win?'ダンサーの勝利!':'キラーの勝利…',(win?'キラーの正気度が尽きて、踊りだした!':'ダンサーは倒れた。')+'<br><small>'+MENU+' で再戦</small>')}
+const mm=$('mm'),mc=mm.getContext('2d');
+function drawMM(hx,hz){const k=5,X=x=>(x+15)*k,Z=z=>(z+15)*k,dot=(x,z,c)=>{mc.fillStyle=c;mc.beginPath();mc.arc(X(x),Z(z),4,0,7);mc.fill()};
+ mc.clearRect(0,0,150,150);mc.fillStyle='#6a5a9a';BX.forEach(b=>mc.fillRect(X(b[0]-b[2]/2),Z(b[1]-b[3]/2),b[2]*k,b[3]*k));
+ mc.strokeStyle='#f45';mc.beginPath();mc.moveTo(X(Kl.x),Z(Kl.z));mc.lineTo(X(Kl.x+Math.sin(Kl.yaw)*3),Z(Kl.z+Math.cos(Kl.yaw)*3));mc.stroke();
+ dot(Kl.x,Kl.z,'#f35');dot(hx,hz,'#ff7ad9');mc.fillStyle='#ffe14d';bl.forEach(b=>mc.fillRect(X(b.m.position.x)-1,Z(b.m.position.z)-1,3,3))}
+function upd(dt){t+=dt;let hx=P.x,hz=P.z,df=3;
+ if(st=='play'){
+  dance=keys.Digit3?2:keys.Digit2?1:keys.Digit1?0:-1;
+  P.yaw+=((keys.KeyQ?1:0)-(keys.KeyE?1:0))*1.8*dt;
+  const sp=4.5*(dance<0?1:DN[dance].s),f=(keys.KeyW?1:0)-(keys.KeyS?1:0),sd=(keys.KeyD?1:0)-(keys.KeyA?1:0),sy=Math.sin(P.yaw),cy=Math.cos(P.yaw);
+  mv(P,(-sy*f+cy*sd)*sp*dt,(-cy*f-sy*sd)*sp*dt,.5);
+  dAmp+=((dance>=0?DN[dance].a:0)-dAmp)*Math.min(1,6*dt);
+  df=dance>=0?DN[dance].f:last>=0?DN[last].f:3;
+  const off=dAmp*(.7*Math.sin(t*df)+.3*Math.sin(t*df*1.7)); // decoy sway: what you see is the real hitbox
+  hx=P.x+cy*off;hz=P.z-sy*off;
+  const dx=hx-Kl.x,dz=hz-Kl.z,dist=Math.hypot(dx,dz),ang=Math.atan2(dx,dz),vis=los(Kl.x,Kl.z,hx,hz);
+  let fireNow=false,fcd=.5;
+  if(mode==2){
+   Kl.yaw+=((keys.ArrowLeft?1:0)-(keys.ArrowRight?1:0))*1.8*dt;
+   const v=keys.ArrowUp?3.8:keys.ArrowDown?-2.5:0;mv(Kl,Math.sin(Kl.yaw)*v*dt,Math.cos(Kl.yaw)*v*dt,.5);
+   avert=!!keys.Slash;fireNow=!!keys.Enter;
+  }else{ // CPU killer: strafes around, hides behind cover chase, can't track fast sway
+   fcd=.9;aiT-=dt;
+   if(aiT<=0){aiT=1.2+Math.random()*1.5;for(let i=0;i<8;i++){aiX=vis?Kl.x+(Math.random()-.5)*10:hx+(Math.random()-.5)*6;aiZ=vis?Kl.z+(Math.random()-.5)*10:hz+(Math.random()-.5)*6;if(!blocked(aiX,aiZ,.6))break}}
+   if(aiAv>0)aiAv-=dt;else if(san<60&&dance>=0&&Math.random()<dt*.4)aiAv=1.2;avert=aiAv>0;
+   const wd=Math.hypot(aiX-Kl.x,aiZ-Kl.z),wa=Math.atan2(aiX-Kl.x,aiZ-Kl.z);
+   if(wd>.4)mv(Kl,Math.sin(wa)*3.2*dt,Math.cos(wa)*3.2*dt,.5);
+   Kl.yaw+=cl(wrap((vis?ang:wa)-Kl.yaw),-1.4*dt,1.4*dt);
+   fireNow=vis&&Math.abs(wrap(ang-Kl.yaw))<.3&&dist<24;
+  }
+  combo-=dt;
+  if(dance>=0){if(dance!==last)combo=1.5;last=dance;
+   if(vis&&dist<26){const prox=1+cl((26-dist)/18,0,1)*1.5,face=Math.abs(wrap(ang-Kl.yaw))<1.1;
+    san-=DN[dance].d*prox*(combo>0?1.5:1)*(avert?.25:face?1:.4)*dt;if(san<=0){san=0;end(true)}}}
+  const seen=vis&&dist<26&&dance>=0;
+  // dancing in sight throws off the killer's aim; low sanity makes it worse
+  const err=Math.sin(t*4.3)*((1-san/100)*.25+(san<30?(1-san/30)*.3:0)+(seen?dAmp*.12:0)),aim=Kl.yaw+err;
+  K.position.set(Kl.x,0,Kl.z);K.rotation.y=Kl.yaw;K.rotation.z=err*.6;kH.rotation.y=avert?2.5:0;
+  LZ.position.set(Kl.x,1.2,Kl.z);LZ.rotation.y=aim;LZ.visible=!avert;
+  cd-=dt;if(rl>0){rl-=dt;if(rl<=0)ammo=6}
+  if(fireNow&&!avert&&cd<=0&&ammo>0&&rl<=0){fire(aim);ammo--;cd=fcd;if(!ammo)rl=2}
+  inv-=dt;
+  for(let i=bl.length-1;i>=0;i--){const b=bl[i],p=b.m.position;p.addScaledVector(b.v,dt);const ex=p.x-hx,ez=p.z-hz;
+   if(inv<=0&&ex*ex+ez*ez<.3){hp--;inv=1;S.remove(b.m);bl.splice(i,1);if(hp<=0)end(false);continue}
+   if(blocked(p.x,p.z,0)){S.remove(b.m);bl.splice(i,1)}}
+  C.position.set(hx,1.6+(dance>=0?Math.abs(Math.sin(t*df))*.12:0),hz);C.rotation.y=P.yaw;C.rotation.z=-Math.cos(t*df)*.05*dAmp;
+  const w=.2+dAmp*.2;
+  hL.position.y+=((dance>=0?-.35+Math.sin(t*df)*w*1.5:-.55)-hL.position.y)*.3;hR.position.y+=((dance>=0?-.35-Math.sin(t*df)*w*1.5:-.55)-hR.position.y)*.3;
+  hL.rotation.z=dance>=0?Math.sin(t*df)*.8:0;hR.rotation.z=-hL.rotation.z;
+ }else if(st=='win'){ // killer forced into a side-to-side sway dance
+  const a=Math.min(1,(t-wt)/.5),p=(t-wt)*YK.hz*PI*2,s=Math.sin(p);
+  K.position.set(cl(wx+s*YK.amp*a,-13,13),Math.abs(Math.cos(p))*.12*a,wz);K.rotation.y=Kl.yaw+s*YK.twist*a;K.rotation.z=-s*YK.tilt*a;
+  kH.rotation.y=0;kH.rotation.z=-Math.sin(p-.9)*YK.head*a;LZ.visible=false;
+  P.yaw+=wrap(Math.atan2(-(Kl.x-P.x),-(Kl.z-P.z))-P.yaw)*Math.min(1,3*dt);
+  C.position.set(P.x,1.6,P.z);C.rotation.set(0,P.yaw,0);
+ }else if(st=='lose'){C.position.set(P.x,.4,P.z);C.rotation.set(0,P.yaw,1.3)}
+ $('sf').style.width=(st=='ready'?100:san)+'%';$('fl').style.opacity=Math.max(0,inv)*.45;
+ if(st!='ready'){
+  $('dl').innerHTML='ダンサー '+'♥'.repeat(Math.max(hp,0))+'♡'.repeat(Math.max(3-hp,0))+'<br>ダンス: '+(dance>=0?DN[dance].n+(combo>0?' ×コンボ!':''):'―');
+  $('kl').innerHTML=(mode==1?'CPUキラー':'対人キラー')+'<br>'+(rl>0?'リロード中…':'●'.repeat(ammo))+(avert?'<br>目をそらし中':'');
+  drawMM(hx,hz)}
+}
+const ck=new THREE.Clock();
+(function loop(){requestAnimationFrame(loop);upd(Math.min(ck.getDelta(),.05));R.render(S,C)})();
+</script></body></html>
